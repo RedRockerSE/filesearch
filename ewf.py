@@ -15,12 +15,11 @@ import pytsk3
 
 
 def open_image(image_path):
-    # Open EWF (E01) image
+    """Open an EWF (E01) image with pyewf and wrap it for pytsk3."""
     filenames = pyewf.glob(image_path)
     ewf_handle = pyewf.handle()
     ewf_handle.open(filenames)
 
-    # Expose it as a file-like object for pytsk3
     class EWFFileLikeObject(pytsk3.Img_Info):
         def __init__(self, ewf_handle):
             self._ewf_handle = ewf_handle
@@ -36,7 +35,32 @@ def open_image(image_path):
     return EWFFileLikeObject(ewf_handle)
 
 
+def open_filesystem(img_info):
+    """Try to open as filesystem directly, else parse partitions."""
+    try:
+        return pytsk3.FS_Info(img_info)
+    except OSError:
+        print("[*] Direct filesystem open failed, scanning partitions...")
+        vol = pytsk3.Volume_Info(img_info)
+
+        for part in vol:
+            desc = part.desc.decode("utf-8", "ignore")
+            print(f" - Partition {part.addr}: {desc}, start={part.start}, length={part.len}")
+
+            # Check for known filesystem partitions
+            if "NTFS" in desc or "FAT" in desc or "Basic data" in desc:
+                offset = part.start * 512  # sectors → bytes
+                print(f"[*] Trying partition {part.addr} at offset {offset}")
+                try:
+                    return pytsk3.FS_Info(img_info, offset=offset)
+                except OSError:
+                    continue
+
+        raise Exception("[-] No valid NTFS/FAT filesystem found in partitions.")
+
+
 def search_files(directory, search_term):
+    """Recursively search for files matching search_term."""
     for entry in directory:
         if entry.info.name.name in [b".", b".."]:
             continue
@@ -62,7 +86,7 @@ def search_files(directory, search_term):
 
 def main(image_file, search_term):
     img_info = open_image(image_file)
-    fs = pytsk3.FS_Info(img_info)
+    fs = open_filesystem(img_info)
 
     root_dir = fs.open_dir("/")
     search_files(root_dir, search_term)
