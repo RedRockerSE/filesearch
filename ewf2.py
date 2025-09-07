@@ -47,9 +47,8 @@ def open_filesystem(img_info):
             desc = part.desc.decode("utf-8", "ignore")
             print(f" - Partition {part.addr}: {desc}, start={part.start}, length={part.len}")
 
-            # Check for known filesystem partitions
-            if "NTFS" in desc or "FAT" in desc or "Basic data" in desc or "Unallocated" in desc:
-                offset = part.start * 512  # sectors → bytes
+            if "NTFS" in desc or "FAT" in desc or "Basic data" in desc:
+                offset = part.start * 512
                 print(f"[*] Trying partition {part.addr} at offset {offset}")
                 try:
                     return pytsk3.FS_Info(img_info, offset=offset)
@@ -59,7 +58,7 @@ def open_filesystem(img_info):
         raise Exception("[-] No valid NTFS/FAT filesystem found in partitions.")
 
 
-def search_files(directory, search_term):
+def search_files(directory, search_term, location=""):
     """Recursively search for files matching search_term."""
     for entry in directory:
         if entry.info.name.name in [b".", b".."]:
@@ -70,16 +69,15 @@ def search_files(directory, search_term):
         except Exception:
             fname = str(entry.info.name.name)
 
-        # Check for filename match
         if search_term.lower() in fname.lower():
             deleted = bool(entry.info.meta and entry.info.meta.flags & pytsk3.TSK_FS_META_FLAG_UNALLOC)
-            print(f"[+] Found: {fname} (Deleted: {deleted})")
+            print(f"[+] Found: {location}/{fname} (Deleted: {deleted})")
 
         # Recurse into subdirectories
         if entry.info.meta and entry.info.meta.type == pytsk3.TSK_FS_META_TYPE_DIR:
             try:
                 subdir = entry.as_directory()
-                search_files(subdir, search_term)
+                search_files(subdir, search_term, location=f"{location}/{fname}")
             except Exception:
                 continue
 
@@ -88,8 +86,17 @@ def main(image_file, search_term):
     img_info = open_image(image_file)
     fs = open_filesystem(img_info)
 
+    print("[*] Searching root filesystem...")
     root_dir = fs.open_dir("/")
-    search_files(root_dir, search_term)
+    search_files(root_dir, search_term, location="")
+
+    # Try searching $OrphanFiles
+    try:
+        print("[*] Searching $OrphanFiles...")
+        orphan_dir = fs.open_dir(path="/$OrphanFiles")
+        search_files(orphan_dir, search_term, location="$/OrphanFiles")
+    except Exception:
+        print("[-] $OrphanFiles not present or not accessible.")
 
 
 if __name__ == "__main__":

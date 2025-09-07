@@ -1,0 +1,6 @@
+$OprhanedFiles
+$RECYCLE.BIN
+Unallocated Clusters
+
+
+cache
